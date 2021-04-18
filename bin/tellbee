@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+import paho.mqtt.client as mqtt
+from termcolor import colored
+import pygments
+import pygments.lexers
+import pygments.formatters
+import coloredlogs
+
+import argparse
+import sys
+import logging as log
+import json
+import re
+import signal
+
+from beehive.jxunxo import jxunxo
+
+def colorise_json(jsonstr: str) -> str:
+    '''Colorise JSON.'''
+    indented = json.dumps(json.loads(jsonstr), indent=4)
+    return(pygments.highlight(
+        indented,
+        pygments.lexers.JsonLexer(),
+        pygments.formatters.TerminalFormatter()))
+
+parser = argparse.ArgumentParser(description='Send a message to a zigbee '
+                                 'device via zigbee2mqtt.')
+
+parser.add_argument('--base-topic', dest='basetopic',
+                    default='zigbee2mqtt',
+                    help='Base topic configured in zigbee2mqtt '
+                    '(default: "%(default)s")',
+                    )
+parser.add_argument('--hostname',
+                    default='localhost',
+                    help='host running zigbee2mqtt '
+                    '(default: "%(default)s")',
+                    )
+parser.add_argument('-p', '--port',
+                    default='1883', type=int,
+                    help='zigbee2mqtt port'
+                    '(default: "%(default)s")',
+                    )
+
+parser.add_argument('--transport',
+                    choices=('tcp', 'websockets'),
+                    default='tcp',
+                    help='transport protocol to talk to zigbee2mqtt '
+                    '(default: "%(default)s")',
+                    )
+
+parser.add_argument('-q', '--qos',
+                    default='2', type=int,
+                    choices=(0,1,2),
+                    help='quality-of-service level in mqtt '
+                    '(0 = guarantees that message is sent, '
+                    '1 = received by server, 2 = received by devices; '
+                    '(default: "%(default)s")',
+                    )
+
+parser.add_argument('--timeout', default=7,
+                    help='Wait for response at most this long ("no" to disable) '
+                    '(default: "%(default)s seconds")',
+                    )
+
+parser.add_argument('--no-wait', '--nowait', action='store_false', dest='wait',
+                    help="Don't wait for a response from device; "
+                    'exit immediately after request is sent (compare --qos).'
+                    'Notice our matching of responses is pretty fuzzy.')
+
+parser.add_argument('--no-color', action='store_false', dest='color',
+                    help="don't use color") # TODO: yes/no/auto
+
+parser.add_argument('--no-guess', action='store_false', dest='guess',
+                    help="don't try to guess json payload from "
+                    "abbreviated YAML")
+
+parser.add_argument('-d', '--debug', action='store_true',
+                    help='show debug messages')
+
+parser.add_argument('subtopic', default='',
+                    help="Topic subpath to publish in (you can omit the --base-topic).  Begins with either the device's friendly_name, or 'bridge' to control zigbee2mqtt itself. May then have subpaths, slash-separated.  See zigbee2mqtt list of devices for device-specific topics, or the manual for the bridge topics."
+                    )
+parser.add_argument('payload', nargs='?', default=None,
+                    help='MQTT message payload (can be empty)')
+
+
+args = parser.parse_args()
+
+if args.debug:
+    log.basicConfig(level=log.DEBUG)
+    coloredlogs.install(level='DEBUG')
+
+if args.timeout in ('-', 'no', 'None', '0', '-1'):
+    log.debug(f'Timeout is {args.timeout}; disabling.')
+    args.timeout = None
+else:
+    args.timeout = int(args.timeout)
+    log.debug(f'Timeout set to {args.timeout}.')
+# normalise to "/basetopic" and "/subtopic" to help with code later
+if args.basetopic[0] == '/':
+    args.basetopic = args.basetopic[1:]
+if args.basetopic[-1] == '/':
+    args.basetopic = args.basetopic[:-1]
+if args.subtopic[0] == '/':
+    args.subtopic = args.subtopic[1:]
+if args.subtopic[-1] == '/':
+    args.subtopic = args.subtopic[:-1]
+
+args.topic = args.basetopic + '/' + args.subtopic
+log.debug(f'topic: {args.topic}')
+
+if args.payload and ':' in args.payload:
+    try:
+        json.loads(args.payload)
+        log.debug(f'payload looks like json: {args.payload}')
+    except json.JSONDecodeError:
+        log.debug(f'payload has colon but is not json: {args.payload}')
+        try:
+            args.payload = jxunxo(args.payload)
+            log.debug(f'converted via jxunxo: {args.payload}')
+        except Exception as e:
+            log.debug(f'could not guess json either: {e}, leaving it as-is')
+            pass
+
+client = mqtt.Client(transport=args.transport)
+client.enable_logger(logger=log)
+# client.username_pw_set(username, password=None)
+# client.tls_set()
+
+
+def on_connect_subscribe(client, userdata, flags, rc) -> None:
+    '''Callback to subscribe to responses when connection is successful.
+
+Expects userdata to have the command-line options.'''
+
+    log.debug(f'Connected: return code {rc}, '
+              f'flags {flags}, userdata {userdata}')
+
+    # if using zigbee2mqtt/bridge/request, subscribe to the appropriate response
+    # instead.
+    subscribe_subtopic = re.sub('^bridge/request', 'bridge/response',
+                                userdata.subtopic)
+    subscribe_topic = userdata.basetopic + '/' + subscribe_subtopic
+
+    # some devices return useful responses at the root; a request to
+    #
+    #     zigbee2mtqq/lamp1/set/color '#ff0000'
+    #
+    # returns something at
+    #
+    #     zigbee2mtqq/lamp1
+    subscribe_short_topic = '/'.join(subscribe_topic.split('/')[0:2])
+
+    subscriptions = [(subscribe_topic, userdata.qos),
+                     (subscribe_short_topic, userdata.qos)]
+    log.debug(f'subscribing to: {subscriptions}')
+    rc, mid = client.subscribe(subscriptions)
+    log.debug(f'subscription response: return code {rc}, mid {mid}')
+
+
+def on_subscribe_publish(client, userdata, mid, granted_qos) -> None:
+    '''Callback to publish the request after subscriptions are done.'''
+
+    log.debug(f'Subscribed: mid {mid}, granted_qps {granted_qos}')
+
+    log.debug(f'Publishing with topic: {userdata.topic}, '
+              f'payload: {userdata.payload}, qos: {userdata.qos}')
+
+    resp = client.publish(userdata.topic, userdata.payload,
+                          qos=userdata.qos)
+    log.debug(f'publish response: return code {resp.rc}')
+    # resp.wait_for_publish()
+    # log.debug(f'wait_for_publish() finished')
+    resp.is_published() # raises ValueError if not
+
+    if not userdata.wait:
+        log.debug('Quitting after publish.')
+        sys.exit(0)
+
+
+def on_publish_wait(client, userdata, mid) -> None:
+    '''Callback after publishing.'''
+    log.debug(f'Published: mid {mid}.')
+
+    client.on_message = on_message_print
+
+
+def on_message_print(client, userdata, message) -> None:
+    '''Callback to receive any response to any subscription.'''
+
+    log.debug(f'Received message: topic {message.topic}, '
+              f'payload {message.payload}, '
+              f'qos {message.qos}, retain {message.retain}')
+    log.debug(f'Userdata: topic {userdata.topic}, payload {userdata.payload}')
+
+    if not message.payload:
+        log.debug('Ignoring empty message.')
+        client.on_message = on_message_print
+        return
+
+    topic = message.topic
+    try:
+        payload = message.payload.decode('utf-8')
+    except Exception as e:
+        log.debug(e)
+        payload = message.payload
+
+    if payload == userdata.payload and topic == userdata.topic:
+        log.debug('Ignoring message identical to our own publish.')
+        client.on_message = on_message_print
+        return
+
+    if userdata.color:
+        topic = colored(topic, 'yellow', attrs=['bold'])
+        try:
+            payload = colorise_json(payload)
+        except Exception as e:
+            log.debug(e)
+            pass
+
+    print(f'{topic}: {payload}')
+    sys.exit(0)
+
+
+def on_timeout_quit(signum, frame) -> None:
+    sys.stderr.write(f"Timeout ({args.timeout}s) waiting for response.\n")
+    sys.exit(1)
+
+client.user_data_set(args)
+
+client.on_connect = on_connect_subscribe
+client.on_subscribe = on_subscribe_publish
+client.on_publish = on_publish_wait
+signal.signal(signal.SIGALRM, on_timeout_quit)
+
+client.connect(args.hostname, port=args.port)
+try:
+    if args.timeout:
+        signal.alarm(args.timeout)
+    client.loop_forever()
+except KeyboardInterrupt:
+    sys.exit(0)
+finally:
+    client.disconnect()
