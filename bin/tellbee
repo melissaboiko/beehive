@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 import paho.mqtt.client as mqtt
-from termcolor import colored
-import pygments
-import pygments.lexers
-import pygments.formatters
+from termcolor import colored as coloured
 import coloredlogs
 
 import argparse
@@ -13,15 +10,8 @@ import json
 import re
 import signal
 
-from beehive.jxunxo import jxunxo
+from beehive.json import jxunxo, colourise_json
 
-def colorise_json(jsonstr: str) -> str:
-    '''Colorise JSON.'''
-    indented = json.dumps(json.loads(jsonstr), indent=4)
-    return(pygments.highlight(
-        indented,
-        pygments.lexers.JsonLexer(),
-        pygments.formatters.TerminalFormatter()))
 
 parser = argparse.ArgumentParser(description='Send a message to a zigbee '
                                  'device via zigbee2mqtt.')
@@ -63,32 +53,53 @@ parser.add_argument('--timeout', default=7,
                     '(default: "%(default)s seconds")',
                     )
 
+parser.add_argument('--wait', action='store_true', help='(default)')
 parser.add_argument('--no-wait', '--nowait', action='store_false', dest='wait',
                     help="Don't wait for a response from device; "
                     'exit immediately after request is sent (compare --qos).'
                     'Notice our matching of responses is pretty fuzzy.')
+parser.set_defaults(wait=True)
 
-parser.add_argument('--no-color', action='store_false', dest='color',
-                    help="don't use color") # TODO: yes/no/auto
-
+parser.add_argument('--guess', action='store_true', help='(default)')
 parser.add_argument('--no-guess', action='store_false', dest='guess',
                     help="don't try to guess json payload from "
                     "abbreviated YAML")
+parser.set_defaults(guess=True)
+
+parser.add_argument('--colour', '--color', choices=('auto', 'yes', 'no'),
+                    default='auto',
+                    help='whether to use colourful output'
+                    '(default: "%(default)')
 
 parser.add_argument('-d', '--debug', action='store_true',
                     help='show debug messages')
 
 parser.add_argument('subtopic', default='',
-                    help="Topic subpath to publish in (you can omit the --base-topic).  Begins with either the device's friendly_name, or 'bridge' to control zigbee2mqtt itself. May then have subpaths, slash-separated.  See zigbee2mqtt list of devices for device-specific topics, or the manual for the bridge topics."
+                    help="Topic subpath to publish in (you can omit the "
+                    "--base-topic).  Begins with either the device's "
+                    "friendly_name, or 'bridge' to control zigbee2mqtt "
+                    "itself. May then have subpaths, slash-separated.  "
+                    "See zigbee2mqtt list of devices for device-specific "
+                    "topics, or the manual for the 'bridge' topics."
                     )
 parser.add_argument('payload', nargs='?', default=None,
-                    help='MQTT message payload (can be empty)')
+                    help='MQTT message payload (can be empty).')
 
 
 args = parser.parse_args()
 
 if args.debug:
     log.basicConfig(level=log.DEBUG)
+    log.debug(f'raw  args: {args}')
+
+if args.colour == 'auto':
+    args.colour = sys.stdout.isatty()
+elif args.colour == 'no':
+    args.colour = False
+else:
+    args.colour = True
+
+if args.colour and args.debug:
     coloredlogs.install(level='DEBUG')
 
 if args.timeout in ('-', 'no', 'None', '0', '-1'):
@@ -211,10 +222,16 @@ def on_message_print(client, userdata, message) -> None:
         client.on_message = on_message_print
         return
 
-    if userdata.color:
-        topic = colored(topic, 'yellow', attrs=['bold'])
+    if userdata.colour:
+        topic = coloured(topic, 'yellow', attrs=['bold'])
         try:
-            payload = colorise_json(payload)
+            payload = colourise_json(payload)
+        except Exception as e:
+            log.debug(e)
+            pass
+    else:
+        try:
+            payload = json.dumps(json.loads(payload), indent=4)
         except Exception as e:
             log.debug(e)
             pass

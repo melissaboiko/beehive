@@ -1,6 +1,19 @@
 import json
 import yaml
 import re
+import pygments
+import pygments.lexers
+import pygments.formatters
+
+
+def colourise_json(jsonstr: str) -> str:
+    '''Colorise JSON.'''
+    indented = json.dumps(json.loads(jsonstr), indent=4)
+    return(pygments.highlight(
+        indented,
+        pygments.lexers.JsonLexer(),
+        pygments.formatters.TerminalFormatter()))
+
 
 def jxunxo(jsonstr: str) -> str:
     '''Hacky problematic/imprecise syntax for typing quick json snippets.
