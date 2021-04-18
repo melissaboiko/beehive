@@ -52,14 +52,14 @@ tellbee --host paopao bridge/request/health_check --timeout 10 --qos 0 --debug
    - is there a way to trigger topics after subscribing?
    - else we'll have to leave a lil dæmon running client-side
    - oor, dig through the syslog sever-side
-   - if successful:
+   - ooor, ask z2m to reload itself :>
+   - if a way is found, we could:
      - list devices
      - list device's capabilities
      - set friendly name
-     - other kinds of info
- - hacky/convenient key-par syntax for json payloads
- - separate library/script code
- - beesaid(1)
+     - other kinds of bridge and device info
+ - separate library/script code better
+ - and write a beesaid(1)
  - static typing checks
  - auto color
  - pypi pkg
