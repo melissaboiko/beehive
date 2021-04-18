@@ -3,7 +3,7 @@ import paho.mqtt.client as mqtt
 from termcolor import colored as coloured
 import coloredlogs
 
-import argparse
+import configargparse as config
 import sys
 import logging as log
 import json
@@ -13,8 +13,10 @@ import signal
 from beehive.json import jxunxo, colourise_json
 
 
-parser = argparse.ArgumentParser(description='Send a message to a zigbee '
-                                 'device via zigbee2mqtt.')
+parser = config.ArgParser(
+    description='Send a message to a zigbee device via zigbee2mqtt.',
+    default_config_files=['~/.config/beehive/beehive.yaml'],
+    config_file_parser_class=config.YAMLConfigFileParser)
 
 parser.add_argument('--base-topic', dest='basetopic',
                     default='zigbee2mqtt',
@@ -121,7 +123,7 @@ if args.subtopic[-1] == '/':
 args.topic = args.basetopic + '/' + args.subtopic
 log.debug(f'topic: {args.topic}')
 
-if args.payload and ':' in args.payload:
+if args.guess and args.payload and ':' in args.payload:
     try:
         json.loads(args.payload)
         log.debug(f'payload looks like json: {args.payload}')

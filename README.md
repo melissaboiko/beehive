@@ -19,7 +19,6 @@ Still alpha/experimental.
  - detailed logs
  - saves some typing
  - convenient syntax for key:value json, use at your own peril, it’s dangerous
- 
 (it’s yaml)
 
 Sample working commands:
@@ -38,6 +37,17 @@ tellbee myikealamp/set '{"color": "#0000ff", "transition": 2}'
 tellbee myikealamp/set color:#0000ff,transition:2
 
 tellbee --host paopao bridge/request/health_check --timeout 10 --qos 0 --debug
+```
+
+# Config file
+
+All command-line options can have defaults saved in `~/.config/beehive/beehive.yaml`, for example:
+
+```yaml
+host: myhost.example.com
+guess: no
+timeout: 4
+qos: 0
 ```
 
 # References
