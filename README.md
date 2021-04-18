@@ -36,7 +36,7 @@ tellbee myikealamp/set '{"color": "#0000ff", "transition": 2}'
 # hacky version
 tellbee myikealamp/set color:#0000ff,transition:2
 
-tellbee --host paopao bridge/request/health_check --timeout 10 --qos 0 --debug
+tellbee --host raspberry bridge/request/health_check --timeout 10 --qos 0 --debug
 ```
 
 # Config file
@@ -45,9 +45,9 @@ All command-line options can have defaults saved in `~/.config/beehive/beehive.y
 
 ```yaml
 host: myhost.example.com
-guess: no
 timeout: 4
 qos: 0
+guess: no
 ```
 
 # References
@@ -71,8 +71,6 @@ qos: 0
  - separate library/script code better
  - and write a beesaid(1)
  - static typing checks
- - auto color
  - pypi pkg
  - passwd auth
  - ssl auth
- - conf file for default options
