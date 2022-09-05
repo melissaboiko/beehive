@@ -42,25 +42,19 @@ parser.add_argument('--transport',
                     )
 
 parser.add_argument('-q', '--qos',
-                    default='2', type=int,
+                    default=2, type=int,
                     choices=(0,1,2),
                     help='quality-of-service level in mqtt '
                     '(0 = guarantees that message is sent, '
                     '1 = received by server, 2 = received by devices; '
-                    '(default: "%(default)s")',
+                    '(default: "%(default)d")',
                     )
 
-parser.add_argument('--timeout', default=7,
-                    help='Wait for response at most this long ("no" to disable) '
-                    '(default: "%(default)s seconds")',
+parser.add_argument('-t', '--timeout', default=7,
+                    help='Wait for response at most this long '
+                    '("0" to disable; see also --qos) '
+                    '(default: "%(default)d seconds")',
                     )
-
-parser.add_argument('--wait', action='store_true', help='(default)')
-parser.add_argument('--no-wait', '--nowait', action='store_false', dest='wait',
-                    help="Don't wait for a response from device; "
-                    'exit immediately after request is sent (compare --qos).'
-                    'Notice our matching of responses is pretty fuzzy.')
-parser.set_defaults(wait=True)
 
 parser.add_argument('--guess', action='store_true', help='(default)')
 parser.add_argument('--no-guess', action='store_false', dest='guess',
@@ -71,7 +65,7 @@ parser.set_defaults(guess=True)
 parser.add_argument('--colour', '--color', choices=('auto', 'yes', 'no'),
                     default='auto',
                     help='whether to use colourful output'
-                    '(default: "%(default)')
+                    '(default: "%(default)s)')
 
 parser.add_argument('-d', '--debug', action='store_true',
                     help='show debug messages')
@@ -187,10 +181,6 @@ def on_subscribe_publish(client, userdata, mid, granted_qos) -> None:
     # log.debug(f'wait_for_publish() finished')
     resp.is_published() # raises ValueError if not
 
-    if not userdata.wait:
-        log.debug('Quitting after publish.')
-        sys.exit(0)
-
 
 def on_publish_wait(client, userdata, mid) -> None:
     '''Callback after publishing.'''
@@ -224,21 +214,23 @@ def on_message_print(client, userdata, message) -> None:
         client.on_message = on_message_print
         return
 
+    payload = json.loads(payload)
+    response = {topic: payload}
+
     if userdata.colour:
-        topic = coloured(topic, 'yellow', attrs=['bold'])
         try:
-            payload = colourise_json(payload)
+            response = colourise_json(response)
         except Exception as e:
             log.debug(e)
             pass
     else:
         try:
-            payload = json.dumps(json.loads(payload), indent=4)
+            response = json.dumps(response, indent=4)
         except Exception as e:
             log.debug(e)
             pass
 
-    print(f'{topic}: {payload}')
+    print(response)
     sys.exit(0)
 
 
